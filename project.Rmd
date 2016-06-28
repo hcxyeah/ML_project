@@ -1,0 +1,100 @@
+---
+title: "Predict the manner of exercies"
+output: html_document
+---
+In this project, I will use data from accelerometers on the belt, forearm, arm and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercies. 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Getting data
+```{r}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+file <- download.file(fileUrl, destfile = "train.csv", method = "curl")
+training <- read.csv("train.csv")
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test <- download.file(testUrl, destfile = "test.csv", method = "curl")
+testing <- read.csv("test.csv")
+```
+
+## Data Preparation
+Using nearZeroVar to diagnose predictors that have very few unique values. Omit these variables from the training dataset.
+```{r results='hide'}
+library(caret)
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+variables <- row.names(nsv[nsv$nzv==FALSE,])
+training <- training[,variables]
+testing <- testing[,variables[-100]]
+```
+The first five variables are id, name and time. These five variables are not useful to the prediction. So I omit the five variable from the preditors list. 
+```{r}
+training <- training[,-(1:5)]
+testing <- testing[,-(1:5)]
+```
+
+Check the dependent variable classe. There are no missing value in the classe column. 
+```{r}
+sum(is.na(training$classe))
+table(training$classe)
+```
+
+I notice that there are lots of columns that have about 97% data are missing. So I will omit those predictors which have over 95% missing data. 
+```{r}
+mean(is.na(training))
+fun <- function(col) {
+  return (mean(is.na(col)))
+}
+na <- apply(training, 2, fun)
+na
+training <- training[which(na<0.95)]
+predictors <- names(training)[-54]
+testing <- testing[predictors]
+```
+
+## Data Preprocessing 
+Now there are 56 predictors. Divide the training dataset into 70% training set, and 30% validation set. 
+```{r}
+set.seed(1212)
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+train_set <- training[inTrain,]
+valid_set <- training[-inTrain,]
+```
+
+Standadize the predictors, and run principle components analysis to capture 90% of the variance.
+```{r}
+preProc <- preProcess(train_set, method = c("center", "scale", "pca"), thresh = 0.9)
+trainPC <- predict(preProc, train_set)
+dim(trainPC)
+```
+After pca, there are 20 predictors. 
+
+## Machine learning: Random Forest
+Using random forest algorithm to train the data. 
+```{r results='hide'}
+library(randomForest)
+model <- randomForest(classe ~., data = trainPC)
+```
+Predict on the validation data. 
+```{r}
+validPC <- predict(preProc, valid_set)
+prediction <- predict(model, validPC)
+confusionMatrix(prediction, validPC$classe)
+```
+The accuracy of this predicting is 98.44%. The sensitivity and specificity are high as weel. The model is pretty good. 
+
+## No pca
+I try not to use pca and run the random forest agian.
+```{r}
+set.seed(1313)
+model2 <- randomForest(classe ~., data = training)
+confusionMatrix(predict(model2, valid_set), valid_set$classe)
+```
+
+Turns out without pca, the accuracy is better. So I will use the model2 for predicting. 
+
+## Using the model to predict
+Run this model on the testing data.
+```{r}
+result <- predict(model2, testing)
+```
+
